@@ -39,6 +39,61 @@ class FuelRecord {
   });
 
   double get totalCost => liters * pricePerLiter;
+
+
+  static double calculateConsumption(FuelRecord current, FuelRecord previous) {
+    final distance = current.odometer - previous.odometer;
+    return distance / current.liters;
+  }
+}
+
+
+class FuelConsumptionStats {
+  final List<FuelRecord> records;
+
+  FuelConsumptionStats(this.records);
+
+  double? getAverageConsumption() {
+    if (records.length < 2) return null;
+
+
+    final sortedRecords = List<FuelRecord>.from(records)
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    double totalConsumption = 0;
+    int validCalculations = 0;
+
+    for (int i = 1; i < sortedRecords.length; i++) {
+      final current = sortedRecords[i];
+      final previous = sortedRecords[i - 1];
+
+      if (current.vehicle.id == previous.vehicle.id) {
+        final consumption = FuelRecord.calculateConsumption(current, previous);
+        totalConsumption += consumption;
+        validCalculations++;
+      }
+    }
+
+    return validCalculations > 0 ? totalConsumption / validCalculations : null;
+  }
+
+  double? getLatestConsumption() {
+    if (records.length < 2) return null;
+
+    final sortedRecords = List<FuelRecord>.from(records)
+      ..sort((a, b) => b.date.compareTo(a.date)); // Sort descending
+
+
+    for (int i = 0; i < sortedRecords.length - 1; i++) {
+      for (int j = i + 1; j < sortedRecords.length; j++) {
+        if (sortedRecords[i].vehicle.id == sortedRecords[j].vehicle.id) {
+          return FuelRecord.calculateConsumption(sortedRecords[i], sortedRecords[j]);
+        }
+      }
+    }
+
+    return null;
+  }
 }
 
 class FuelControlApp extends StatelessWidget {
@@ -209,7 +264,7 @@ class VehicleManagementPageState extends State<VehicleManagementPage> {
               }
 
               final newVehicle = Vehicle(
-                id: DateTime.now().toString(),
+                id: vehicle?.id ?? DateTime.now().toString(),
                 name: nameController.text,
                 model: modelController.text,
                 year: int.parse(yearController.text),
@@ -365,103 +420,185 @@ class FuelRecordsPageState extends State<FuelRecordsPage> {
 
   void _showAddDialog() {
     showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
+        context: context,
+        builder: (context) => AlertDialog(
         title: const Text('Novo Abastecimento'),
-        content: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<Vehicle>(
-                  value: _selectedVehicle,
-                  decoration: const InputDecoration(labelText: 'Selecione o Veículo'),
-                  items: widget.vehicles
-                      .map((vehicle) => DropdownMenuItem(
-                    value: vehicle,
-                    child: Text('${vehicle.name} - ${vehicle.licensePlate}'),
-                  ))
-                      .toList(),
-                  onChanged: (vehicle) => setState(() => _selectedVehicle = vehicle),
-                  validator: (value) => value == null ? 'Selecione um veículo' : null,
-                ),
-                TextFormField(
-                  controller: _dateController,
-                  decoration: const InputDecoration(labelText: 'Data (dd/mm/aaaa)'),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Por favor, insira a data';
-                    }
-                    try {
-                      DateFormat('dd/MM/yyyy').parse(value);
-                    } catch (e) {
-                      return 'Data inválida';
-                    }
-                    return null;
-                  },
-                ),
-                TextFormField(
-                  controller: _litersController,
-                  decoration: const InputDecoration(labelText: 'Litros'),
-                  keyboardType: TextInputType.number,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Por favor, insira a quantidade';
-                    }
-                    if (double.tryParse(value) == null) {
-                      return 'Valor inválido';
-                    }
-                    return null;
-                  },
-                ),
-                TextFormField(
-                  controller: _priceController,
-                  decoration: const InputDecoration(labelText: 'Preço por litro'),
-                  keyboardType: TextInputType.number,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Por favor, insira o preço';
-                    }
-                    if (double.tryParse(value) == null) {
-                      return 'Valor inválido';
-                    }
-                    return null;
-                  },
-                ),
-                TextFormField(
-                  controller: _odometerController,
-                  decoration: const InputDecoration(labelText: 'Quilometragem'),
-                  keyboardType: TextInputType.number,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Por favor, insira a quilometragem';
-                    }
-                    if (double.tryParse(value) == null) {
-                      return 'Valor inválido';
-                    }
-                    return null;
-                  },
-                ),
-                TextFormField(
-                  controller: _notesController,
-                  decoration: const InputDecoration(labelText: 'Observações'),
-                  maxLines: 2,
-                ),
-              ],
+    content: SingleChildScrollView(
+    child: Form(
+    key: _formKey,
+    child: Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+    DropdownButtonFormField<Vehicle>(
+    value: _selectedVehicle,
+    decoration: const InputDecoration(labelText: 'Selecione o Veículo'),
+    items: widget.vehicles
+        .map((vehicle) => DropdownMenuItem(
+    value: vehicle,
+    child: Text('${vehicle.name} - ${vehicle.licensePlate}'),
+    ))
+        .toList(),
+    onChanged: (vehicle) => setState(() => _selectedVehicle = vehicle),
+    validator: (value) => value == null ? 'Selecione um veículo' : null,
+    ),
+    TextFormField(
+    controller: _dateController,
+    decoration: const InputDecoration(labelText: 'Data (dd/mm/aaaa)'),
+    validator: (value) {
+    if (value == null || value.isEmpty) {
+    return 'Por favor, insira a data';
+    }
+    try {
+    DateFormat('dd/MM/yyyy').parse(value);
+    } catch (e) {
+    return 'Data inválida';
+    }
+    return null;
+    },
+    ),
+    TextFormField(
+    controller: _litersController,
+    decoration: const InputDecoration(labelText: 'Litros'),
+    keyboardType: TextInputType.number,
+    validator: (value) {
+    if (value == null || value.isEmpty) {
+    return 'Por favor, insira a quantidade';
+    }
+    if (double.tryParse(value) == null) {
+    return 'Valor inválido';
+    }
+    return null;
+    },
+    ),
+    TextFormField(
+    controller: _priceController,
+    decoration: const InputDecoration(labelText: 'Preço por litro'),
+    keyboardType: TextInputType.number,
+    validator: (value) {
+    if (value == null || value.isEmpty) {
+    return 'Por favor, insira o preço';
+    }
+    if (double.tryParse(value) == null) {
+    return 'Valor inválido';
+    }
+    return null;
+    },
+    ),
+      TextFormField(
+        controller: _odometerController,
+        decoration: const InputDecoration(labelText: 'Quilometragem'),
+        keyboardType: TextInputType.number,
+        validator: (value) {
+          if (value == null || value.isEmpty) {
+            return 'Por favor, insira a quilometragem';
+          }
+          if (double.tryParse(value) == null) {
+            return 'Valor inválido';
+          }
+          return null;
+        },
+      ),
+      TextFormField(
+        controller: _notesController,
+        decoration: const InputDecoration(labelText: 'Observações'),
+        maxLines: 2,
+      ),
+    ],
+    ),
+    ),
+    ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
             ),
-          ),
+            TextButton(
+              onPressed: _addRecord,
+              child: const Text('Salvar'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: _addRecord,
-            child: const Text('Salvar'),
-          ),
-        ],
+    );
+  }
+
+  Widget _buildConsumptionStats() {
+    if (widget.records.isEmpty) return const SizedBox.shrink();
+
+
+    final recordsByVehicle = <String, List<FuelRecord>>{};
+    for (var record in widget.records) {
+      recordsByVehicle.putIfAbsent(record.vehicle.id, () => []).add(record);
+    }
+
+    return Card(
+      margin: const EdgeInsets.all(8.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Estatísticas de Consumo',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            ...recordsByVehicle.entries.map((entry) {
+              final vehicleRecords = entry.value;
+              final stats = FuelConsumptionStats(vehicleRecords);
+              final vehicle = vehicleRecords.first.vehicle;
+              final avgConsumption = stats.getAverageConsumption();
+              final latestConsumption = stats.getLatestConsumption();
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      vehicle.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    if (avgConsumption != null)
+                      Text('Média geral: ${avgConsumption.toStringAsFixed(2)} km/l'),
+                    if (latestConsumption != null)
+                      Text('Último consumo: ${latestConsumption.toStringAsFixed(2)} km/l'),
+                    const Divider(),
+                  ],
+                ),
+              );
+            }).toList(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecordItem(BuildContext context, int index) {
+    final record = widget.records[index];
+    final previousRecord = index < widget.records.length - 1 ?
+    widget.records.where((r) => r.vehicle.id == record.vehicle.id && r.date.isBefore(record.date))
+        .fold<FuelRecord?>(null, (prev, curr) => prev == null || curr.date.isAfter(prev.date) ? curr : prev)
+        : null;
+
+    return Card(
+      margin: const EdgeInsets.all(8.0),
+      child: ListTile(
+        title: Text(record.vehicle.name),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Data: ${DateFormat('dd/MM/yyyy').format(record.date)}'),
+            Text('Litros: ${record.liters.toStringAsFixed(2)}'),
+            Text('Preço/L: R\$ ${record.pricePerLiter.toStringAsFixed(2)}'),
+            Text('Total: R\$ ${record.totalCost.toStringAsFixed(2)}'),
+            Text('Km: ${record.odometer.toStringAsFixed(0)}'),
+            if (previousRecord != null) Text(
+                'Consumo: ${FuelRecord.calculateConsumption(record, previousRecord).toStringAsFixed(2)} km/l'
+            ),
+            if (record.notes != null && record.notes!.isNotEmpty)
+              Text('Obs: ${record.notes}'),
+          ],
+        ),
       ),
     );
   }
@@ -469,34 +606,22 @@ class FuelRecordsPageState extends State<FuelRecordsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(
+      appBar: AppBar(
         title: const Text('Registros de Abastecimento'),
-    ),
-    body: widget.records.isEmpty
-    ? const Center(child: Text('Nenhum registro de abastecimento'))
-        : ListView.builder(
-    itemCount: widget.records.length,
-    itemBuilder: (context, index) {
-    final record = widget.records[index];
-    return Card(
-    margin: const EdgeInsets.all(8.0),
-    child: ListTile(
-    title: Text(record.vehicle.name),
-    subtitle: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-    Text('Data: ${DateFormat('dd/MM/yyyy').format(record.date)}'),
-    Text('Litros: ${record.liters.toStringAsFixed(2)}'),
-    Text('Preço/L: R\$ ${record.pricePerLiter.toStringAsFixed(2)}'),
-    Text('Total: R\$ ${record.totalCost.toStringAsFixed(2)}'), Text('Km: ${record.odometer.toStringAsFixed(0)}'),
-      if (record.notes != null && record.notes!.isNotEmpty)
-        Text('Obs: ${record.notes}'),
-    ],
-    ),
-    ),
-    );
-    },
-    ),
+      ),
+      body: widget.records.isEmpty
+          ? const Center(child: Text('Nenhum registro de abastecimento'))
+          : Column(
+        children: [
+          _buildConsumptionStats(),
+          Expanded(
+            child: ListView.builder(
+              itemCount: widget.records.length,
+              itemBuilder: _buildRecordItem,
+            ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddDialog,
         child: const Icon(Icons.add),
