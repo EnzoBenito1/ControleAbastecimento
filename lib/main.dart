@@ -1,16 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'firebase_options.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform, // Adicione esta linha
+  );
   runApp(const FuelControlApp());
 }
 
+
 class Vehicle {
-  String id;
-  String name;
-  String model;
-  int year;
-  String licensePlate;
+  final String id;
+  final String name;
+  final String model;
+  final int year;
+  final String licensePlate;
 
   Vehicle({
     required this.id,
@@ -20,6 +28,7 @@ class Vehicle {
     required this.licensePlate,
   });
 }
+
 
 class FuelRecord {
   final DateTime date;
@@ -40,10 +49,9 @@ class FuelRecord {
 
   double get totalCost => liters * pricePerLiter;
 
-
   static double calculateConsumption(FuelRecord current, FuelRecord previous) {
-    final distance = current.odometer - previous.odometer;
-    return distance / current.liters;
+    if (current.odometer <= previous.odometer) return 0;
+    return (current.odometer - previous.odometer) / current.liters;
   }
 }
 
@@ -56,45 +64,354 @@ class FuelConsumptionStats {
   double? getAverageConsumption() {
     if (records.length < 2) return null;
 
-
-    final sortedRecords = List<FuelRecord>.from(records)
+    var totalDistance = 0.0;
+    var totalLiters = 0.0;
+    var sortedRecords = List<FuelRecord>.from(records)
       ..sort((a, b) => a.date.compareTo(b.date));
 
-    double totalConsumption = 0;
-    int validCalculations = 0;
-
-    for (int i = 1; i < sortedRecords.length; i++) {
-      final current = sortedRecords[i];
-      final previous = sortedRecords[i - 1];
-
-      if (current.vehicle.id == previous.vehicle.id) {
-        final consumption = FuelRecord.calculateConsumption(current, previous);
-        totalConsumption += consumption;
-        validCalculations++;
+    for (var i = 1; i < sortedRecords.length; i++) {
+      var current = sortedRecords[i];
+      var previous = sortedRecords[i - 1];
+      var distance = current.odometer - previous.odometer;
+      if (distance > 0) {
+        totalDistance += distance;
+        totalLiters += current.liters;
       }
     }
 
-    return validCalculations > 0 ? totalConsumption / validCalculations : null;
+    return totalLiters > 0 ? totalDistance / totalLiters : null;
   }
 
   double? getLatestConsumption() {
     if (records.length < 2) return null;
 
-    final sortedRecords = List<FuelRecord>.from(records)
-      ..sort((a, b) => b.date.compareTo(a.date)); // Sort descending
+    var sortedRecords = List<FuelRecord>.from(records)
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    var latest = sortedRecords[0];
+    var previous = sortedRecords[1];
+
+    return FuelRecord.calculateConsumption(latest, previous);
+  }
+}
 
 
-    for (int i = 0; i < sortedRecords.length - 1; i++) {
-      for (int j = i + 1; j < sortedRecords.length; j++) {
-        if (sortedRecords[i].vehicle.id == sortedRecords[j].vehicle.id) {
-          return FuelRecord.calculateConsumption(sortedRecords[i], sortedRecords[j]);
+class AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  Stream<User?> get authStateChanges => _auth.authStateChanges();
+
+  Future<UserCredential?> signInWithEmailAndPassword(
+      String email, String password) async {
+    try {
+      return await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      print('Error signing in: $e');
+      rethrow;
+    }
+  }
+
+  Future<UserCredential?> createUserWithEmailAndPassword(
+      String email, String password) async {
+    try {
+      return await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      print('Error creating user: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> signOut() async {
+    try {
+      await _auth.signOut();
+    } catch (e) {
+      print('Error signing out: $e');
+      rethrow;
+    }
+  }
+}
+
+
+class AuthWrapper extends StatelessWidget {
+  final Widget Function(User?) builder;
+
+  const AuthWrapper({Key? key, required this.builder}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        return builder(snapshot.data);
+      },
+    );
+  }
+}
+
+
+class AuthPage extends StatefulWidget {
+  const AuthPage({Key? key}) : super(key: key);
+
+  @override
+  AuthPageState createState() => AuthPageState();
+}
+
+class AuthPageState extends State<AuthPage> {
+  bool showLogin = true;
+
+  void toggleView() {
+    setState(() {
+      showLogin = !showLogin;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (showLogin) {
+      return LoginPage(toggleView: toggleView);
+    } else {
+      return RegisterPage(toggleView: toggleView);
+    }
+  }
+}
+
+
+class LoginPage extends StatefulWidget {
+  final VoidCallback toggleView;
+
+  const LoginPage({Key? key, required this.toggleView}) : super(key: key);
+
+  @override
+  LoginPageState createState() => LoginPageState();
+}
+
+class LoginPageState extends State<LoginPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _authService = AuthService();
+  bool _isLoading = false;
+
+  Future<void> _signIn() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+      try {
+        await _authService.signInWithEmailAndPassword(
+          _emailController.text,
+          _passwordController.text,
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erro ao fazer login: ${e.toString()}')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
         }
       }
     }
+  }
 
-    return null;
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Login'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                validator: (value) =>
+                value?.isEmpty ?? true ? 'Digite seu email' : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _passwordController,
+                decoration: const InputDecoration(
+                  labelText: 'Senha',
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+                validator: (value) =>
+                value?.isEmpty ?? true ? 'Digite sua senha' : null,
+              ),
+              const SizedBox(height: 24),
+              _isLoading
+                  ? const CircularProgressIndicator()
+                  : ElevatedButton(
+                onPressed: _signIn,
+                child: const Text('Entrar'),
+              ),
+              TextButton(
+                onPressed: widget.toggleView,
+                child: const Text('Não tem uma conta? Cadastre-se'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
+
+
+class RegisterPage extends StatefulWidget {
+  final VoidCallback toggleView;
+
+  const RegisterPage({Key? key, required this.toggleView}) : super(key: key);
+
+  @override
+  RegisterPageState createState() => RegisterPageState();
+}
+
+class RegisterPageState extends State<RegisterPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  final _authService = AuthService();
+  bool _isLoading = false;
+
+  Future<void> _register() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+      try {
+        await _authService.createUserWithEmailAndPassword(
+          _emailController.text,
+          _passwordController.text,
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erro ao criar conta: ${e.toString()}')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Cadastro'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                validator: (value) {
+                  if (value?.isEmpty ?? true) {
+                    return 'Digite seu email';
+                  }
+                  if (!value!.contains('@')) {
+                    return 'Digite um email válido';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _passwordController,
+                decoration: const InputDecoration(
+                  labelText: 'Senha',
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+                validator: (value) {
+                  if (value?.isEmpty ?? true) {
+                    return 'Digite sua senha';
+                  }
+                  if (value!.length < 6) {
+                    return 'A senha deve ter pelo menos 6 caracteres';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _confirmPasswordController,
+                decoration: const InputDecoration(
+                  labelText: 'Confirme a senha',
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+                validator: (value) {
+                  if (value?.isEmpty ?? true) {
+                    return 'Confirme sua senha';
+                  }
+                  if (value != _passwordController.text) {
+                    return 'As senhas não coincidem';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 24),
+              _isLoading
+                  ? const CircularProgressIndicator()
+                  : ElevatedButton(
+                onPressed: _register,
+                child: const Text('Cadastrar'),
+              ),
+              TextButton(
+                onPressed: widget.toggleView,
+                child: const Text('Já tem uma conta? Faça login'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 
 class FuelControlApp extends StatelessWidget {
   const FuelControlApp({Key? key}) : super(key: key);
@@ -107,10 +424,19 @@ class FuelControlApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      home: const HomePage(),
+      home: AuthWrapper(
+        builder: (user) {
+          if (user == null) {
+            return const AuthPage();
+          }
+          return const HomePage();
+        },
+      ),
     );
   }
 }
+
+
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -169,6 +495,12 @@ class HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Controle de Abastecimento'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => AuthService().signOut(),
+          ),
+        ],
       ),
       body: Center(
         child: Column(
@@ -176,13 +508,13 @@ class HomePageState extends State<HomePage> {
           children: [
             ElevatedButton.icon(
               icon: const Icon(Icons.car_rental),
-              label: const Text('Gerenciar Veículos'),
+              label: const Text('Gerenciar meus Veículos'),
               onPressed: _navigateToVehicleManagement,
             ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
               icon: const Icon(Icons.local_gas_station),
-              label: const Text('Registros de Abastecimento'),
+              label: const Text('Registros dos seus Abastecimentos'),
               onPressed: _navigateToFuelRecords,
             ),
           ],
@@ -420,104 +752,104 @@ class FuelRecordsPageState extends State<FuelRecordsPage> {
 
   void _showAddDialog() {
     showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
+      context: context,
+      builder: (context) => AlertDialog(
         title: const Text('Novo Abastecimento'),
-    content: SingleChildScrollView(
-    child: Form(
-    key: _formKey,
-    child: Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-    DropdownButtonFormField<Vehicle>(
-    value: _selectedVehicle,
-    decoration: const InputDecoration(labelText: 'Selecione o Veículo'),
-    items: widget.vehicles
-        .map((vehicle) => DropdownMenuItem(
-    value: vehicle,
-    child: Text('${vehicle.name} - ${vehicle.licensePlate}'),
-    ))
-        .toList(),
-    onChanged: (vehicle) => setState(() => _selectedVehicle = vehicle),
-    validator: (value) => value == null ? 'Selecione um veículo' : null,
-    ),
-    TextFormField(
-    controller: _dateController,
-    decoration: const InputDecoration(labelText: 'Data (dd/mm/aaaa)'),
-    validator: (value) {
-    if (value == null || value.isEmpty) {
-    return 'Por favor, insira a data';
-    }
-    try {
-    DateFormat('dd/MM/yyyy').parse(value);
-    } catch (e) {
-    return 'Data inválida';
-    }
-    return null;
-    },
-    ),
-    TextFormField(
-    controller: _litersController,
-    decoration: const InputDecoration(labelText: 'Litros'),
-    keyboardType: TextInputType.number,
-    validator: (value) {
-    if (value == null || value.isEmpty) {
-    return 'Por favor, insira a quantidade';
-    }
-    if (double.tryParse(value) == null) {
-    return 'Valor inválido';
-    }
-    return null;
-    },
-    ),
-    TextFormField(
-    controller: _priceController,
-    decoration: const InputDecoration(labelText: 'Preço por litro'),
-    keyboardType: TextInputType.number,
-    validator: (value) {
-    if (value == null || value.isEmpty) {
-    return 'Por favor, insira o preço';
-    }
-    if (double.tryParse(value) == null) {
-    return 'Valor inválido';
-    }
-    return null;
-    },
-    ),
-      TextFormField(
-        controller: _odometerController,
-        decoration: const InputDecoration(labelText: 'Quilometragem'),
-        keyboardType: TextInputType.number,
-        validator: (value) {
-          if (value == null || value.isEmpty) {
-            return 'Por favor, insira a quilometragem';
-          }
-          if (double.tryParse(value) == null) {
-            return 'Valor inválido';
-          }
-          return null;
-        },
-      ),
-      TextFormField(
-        controller: _notesController,
-        decoration: const InputDecoration(labelText: 'Observações'),
-        maxLines: 2,
-      ),
-    ],
-    ),
-    ),
-    ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
+        content: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<Vehicle>(
+                  value: _selectedVehicle,
+                  decoration: const InputDecoration(labelText: 'Selecione o Veículo'),
+                  items: widget.vehicles
+                      .map((vehicle) => DropdownMenuItem(
+                    value: vehicle,
+                    child: Text('${vehicle.name} - ${vehicle.licensePlate}'),
+                  ))
+                      .toList(),
+                  onChanged: (vehicle) => setState(() => _selectedVehicle = vehicle),
+                  validator: (value) => value == null ? 'Selecione um veículo' : null,
+                ),
+                TextFormField(
+                  controller: _dateController,
+                  decoration: const InputDecoration(labelText: 'Data (dd/mm/aaaa)'),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Por favor, insira a data';
+                    }
+                    try {
+                      DateFormat('dd/MM/yyyy').parse(value);
+                    } catch (e) {
+                      return 'Data inválida';
+                    }
+                    return null;
+                  },
+                ),
+                TextFormField(
+                  controller: _litersController,
+                  decoration: const InputDecoration(labelText: 'Litros'),
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Por favor, insira a quantidade';
+                    }
+                    if (double.tryParse(value) == null) {
+                      return 'Valor inválido';
+                    }
+                    return null;
+                  },
+                ),
+                TextFormField(
+                  controller: _priceController,
+                  decoration: const InputDecoration(labelText: 'Preço por litro'),
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Por favor, insira o preço';
+                    }
+                    if (double.tryParse(value) == null) {
+                      return 'Valor inválido';
+                    }
+                    return null;
+                  },
+                ),
+                TextFormField(
+                  controller: _odometerController,
+                  decoration: const InputDecoration(labelText: 'Quilometragem'),
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Por favor, insira a quilometragem';
+                    }
+                    if (double.tryParse(value) == null) {
+                      return 'Valor inválido';
+                    }
+                    return null;
+                  },
+                ),
+                TextFormField(
+                  controller: _notesController,
+                  decoration: const InputDecoration(labelText: 'Observações'),
+                  maxLines: 2,
+                ),
+              ],
             ),
-            TextButton(
-              onPressed: _addRecord,
-              child: const Text('Salvar'),
-            ),
-          ],
+          ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: _addRecord,
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
     );
   }
 
