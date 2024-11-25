@@ -1021,7 +1021,6 @@ class FuelRecordsPageState extends State<FuelRecordsPage> {
   Widget _buildConsumptionStats() {
     if (widget.records.isEmpty) return const SizedBox.shrink();
 
-
     final recordsByVehicle = <String, List<FuelRecord>>{};
     for (var record in widget.records) {
       recordsByVehicle.putIfAbsent(record.vehicle.id, () => []).add(record);
@@ -1046,6 +1045,27 @@ class FuelRecordsPageState extends State<FuelRecordsPage> {
               final avgConsumption = stats.getAverageConsumption();
               final latestConsumption = stats.getLatestConsumption();
 
+    double? avgCostPerKm;
+    if (vehicleRecords.length > 1) {
+    var totalCost = 0.0;
+    var totalDistance = 0.0;
+
+    for (var i = 1; i < vehicleRecords.length; i++) {
+    var current = vehicleRecords[i];
+    var previous = vehicleRecords[i - 1];
+
+    if (current.vehicle.id == previous.vehicle.id) {
+    double distance = current.odometer - previous.odometer;
+    if (distance > 0) {
+    totalCost += current.totalCost;
+    totalDistance += distance;
+    }
+    }
+    }
+
+    avgCostPerKm = totalDistance > 0 ? totalCost / totalDistance : null;
+    }
+
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4.0),
                 child: Column(
@@ -1059,6 +1079,8 @@ class FuelRecordsPageState extends State<FuelRecordsPage> {
                       Text('Média geral: ${avgConsumption.toStringAsFixed(2)} km/l'),
                     if (latestConsumption != null)
                       Text('Último consumo: ${latestConsumption.toStringAsFixed(2)} km/l'),
+                    if (avgCostPerKm != null)
+                      Text('Custo médio por km: R\$ ${avgCostPerKm.toStringAsFixed(2)}'),
                     const Divider(),
                   ],
                 ),
