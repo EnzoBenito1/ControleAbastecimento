@@ -7,7 +7,7 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform, // Adicione esta linha
+    options: DefaultFirebaseOptions.currentPlatform,
   );
   runApp(const FuelControlApp());
 }
@@ -108,7 +108,7 @@ class AuthService {
         password: password,
       );
     } catch (e) {
-      print('Error signing in: $e');
+      print('Erro ao entrar: $e');
       rethrow;
     }
   }
@@ -121,7 +121,7 @@ class AuthService {
         password: password,
       );
     } catch (e) {
-      print('Error creating user: $e');
+      print('Erro criando usuário: $e');
       rethrow;
     }
   }
@@ -130,7 +130,7 @@ class AuthService {
     try {
       await _auth.signOut();
     } catch (e) {
-      print('Error signing out: $e');
+      print('Erro ao sair: $e');
       rethrow;
     }
   }
@@ -466,6 +466,20 @@ class HomePageState extends State<HomePage> {
     );
   }
 
+  void _navigateToAddVehicle() {
+
+    showDialog(
+      context: context,
+      builder: (context) => VehicleDialog(
+        onSave: (vehicle) {
+          setState(() {
+            _vehicles.add(vehicle);
+          });
+        },
+      ),
+    );
+  }
+
   void _navigateToFuelRecords() {
     if (_vehicles.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -490,18 +504,94 @@ class HomePageState extends State<HomePage> {
     );
   }
 
+  void _navigateToProfile() {
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Você está logado')),
+    );
+  }
+
+  Widget _buildDrawer() {
+    final user = FirebaseAuth.instance.currentUser;
+
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          UserAccountsDrawerHeader(
+            accountName: const Text('Conta'),
+            accountEmail: Text(user?.email ?? ''),
+            currentAccountPicture: CircleAvatar(
+              backgroundColor: Colors.white,
+              child: Text(
+                (user?.email?[0] ?? 'U').toUpperCase(),
+                style: const TextStyle(fontSize: 24.0),
+              ),
+            ),
+            decoration: BoxDecoration(
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.home),
+            title: const Text('Home'),
+            onTap: () {
+              Navigator.pop(context);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.directions_car),
+            title: const Text('Meus Veículos'),
+            onTap: () {
+              Navigator.pop(context);
+              _navigateToVehicleManagement();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.add_circle),
+            title: const Text('Adicionar Veículo'),
+            onTap: () {
+              Navigator.pop(context);
+              _navigateToAddVehicle();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.local_gas_station),
+            title: const Text('Histórico de Abastecimentos'),
+            onTap: () {
+              Navigator.pop(context);
+              _navigateToFuelRecords();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.person),
+            title: const Text('Perfil'),
+            onTap: () {
+              Navigator.pop(context);
+              _navigateToProfile();
+            },
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout),
+            title: const Text('Logout'),
+            onTap: () async {
+              Navigator.pop(context);
+              await AuthService().signOut();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Controle de Abastecimento'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => AuthService().signOut(),
-          ),
-        ],
       ),
+      drawer: _buildDrawer(),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -520,6 +610,81 @@ class HomePageState extends State<HomePage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class VehicleDialog extends StatelessWidget {
+  final Function(Vehicle) onSave;
+  final Vehicle? vehicle;
+
+  const VehicleDialog({
+    Key? key,
+    required this.onSave,
+    this.vehicle,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final nameController = TextEditingController(text: vehicle?.name ?? '');
+    final modelController = TextEditingController(text: vehicle?.model ?? '');
+    final yearController = TextEditingController(text: vehicle?.year.toString() ?? '');
+    final plateController = TextEditingController(text: vehicle?.licensePlate ?? '');
+
+    return AlertDialog(
+      title: Text(vehicle == null ? 'Novo Veículo' : 'Editar Veículo'),
+      content: Form(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: 'Nome'),
+            ),
+            TextField(
+              controller: modelController,
+              decoration: const InputDecoration(labelText: 'Modelo'),
+            ),
+            TextField(
+              controller: yearController,
+              decoration: const InputDecoration(labelText: 'Ano'),
+              keyboardType: TextInputType.number,
+            ),
+            TextField(
+              controller: plateController,
+              decoration: const InputDecoration(labelText: 'Placa'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        TextButton(
+          onPressed: () {
+            if (nameController.text.isEmpty ||
+                modelController.text.isEmpty ||
+                yearController.text.isEmpty ||
+                plateController.text.isEmpty) {
+              return;
+            }
+
+            final newVehicle = Vehicle(
+              id: vehicle?.id ?? DateTime.now().toString(),
+              name: nameController.text,
+              model: modelController.text,
+              year: int.parse(yearController.text),
+              licensePlate: plateController.text,
+            );
+
+            onSave(newVehicle);
+            Navigator.pop(context);
+          },
+          child: const Text('Salvar'),
+        ),
+      ],
     );
   }
 }
